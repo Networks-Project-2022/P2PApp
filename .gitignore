@@ -187,3 +187,8 @@ fabric.properties
 
 # Local History for Visual Studio Code
 .history/
+/.idea/.gitignore
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/P2PApp.iml
+/.idea/vcs.xml
