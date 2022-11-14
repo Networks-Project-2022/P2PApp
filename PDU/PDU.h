@@ -8,11 +8,13 @@
 #ifndef PDUH
 #define PDUH
 
-#define PDU_SIZE 101
-#define DATA_SIZE 100
+#define DEFAULT_DATA_SIZE 100
+
+// PDU struct with type and data fields
 struct PDU {
   char type;
-  char data[DATA_SIZE];
+  // Pointer to dynamic length data
+  char *data;
 };
 
 enum PDU_TYPE {
@@ -26,11 +28,11 @@ enum PDU_TYPE {
   ERROR = 'E',
 };
 
-void sendPDU(char *buf, struct PDU pdu);
+struct PDU createPDU(enum PDU_TYPE type, char *data, int size);
 
-struct PDU receivePDU(char *data);
+struct PDU receivePDU(const char *data);
 
-struct PDU createPDU(enum PDU_TYPE type, char *data);
+void stringifyPDU(char *buf, struct PDU pdu);
 
 #endif
 
