@@ -1,6 +1,3 @@
-//
-// Created by Michael Caira on 2022-11-09.
-//
 #include <stdlib.h>
 #include "PDU.h"
 const int MAX_PACKET_SIZE = 1460;
