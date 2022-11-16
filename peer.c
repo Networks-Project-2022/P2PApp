@@ -73,6 +73,8 @@ int main(int argc, char **argv) {
   // Socket created successfully, enter name to register with index server
   printf("Enter a username to register with the index server (20 character limit)\n");
   scanf("%s", username);
+
+  exit(0);
 }
 
 void handler() {
