@@ -31,7 +31,10 @@ struct {
   char name[NAMESIZE];
 } table[MAXCON];
 
-char username[NAMESIZE];
+char usr[NAMESIZE];
+char localnames[FILENAME_BUFF_SIZE];
+char servernames[FILENAME_BUFF_SIZE];
+
 int s_sock, peer_port, fd, nfds;
 fd_set rfds, afds;
 
@@ -45,7 +48,7 @@ void online_list(int);
 void local_list();
 void handler();
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
   int s_port = SERVER_PORT;
   int n;
   int alen = sizeof(struct sockaddr_in);
@@ -71,7 +74,7 @@ int main(int argc, char **argv) {
   }
 
   // Establish UDP connection with the index server
-  memset(&server, 0, alen); // clear server address
+  memset(&server, 0, sizeof(server)); // clear server address
   server.sin_family = AF_INET;
   server.sin_port = htons(s_port);
 
@@ -81,7 +84,7 @@ int main(int argc, char **argv) {
 	printf("Can't get host entry\n");
 	exit(1);
   }
-  // Create socket for index server
+  // Create socket for index server connection
   s_sock = socket(PF_INET, SOCK_DGRAM, 0);
   if (s_sock < 0) {
 	printf("Can't create socket\n");
@@ -93,8 +96,8 @@ int main(int argc, char **argv) {
   }
 
   // Socket created successfully, enter name to register with index server
-  printf("Enter a username to register with the index server (20 character limit):\n");
-  scanf("%s", username);
+  printf("Enter a usr to register with the index server (20 character limit):\n");
+  scanf("%s", usr);
 
   // Initialize SELECT struct and table struct, monitoring for changes
   FD_ZERO(&afds);
@@ -113,56 +116,62 @@ int main(int argc, char **argv) {
 
   // Main loop
   while (1) {
-	printf("Enter a command: ");
+	printf("Command:\n");
 	memcpy(&rfds, &afds, sizeof(rfds));
 	if (select(nfds, &rfds, NULL, NULL, NULL) == -1) {
 	  printf("Select error: %s\n", strerror(errno));
 	  exit(1);
 	}
-	// Select successful and FD is set, read command from user
+	// Select successful and FD is set, read command from usr
 	if (FD_ISSET(0, &rfds)) {
-	  c = (char)getchar();
+	  c = getchar();
 	  switch (c) {
 		// Register content
 		case 'R': {
-		  printf("R-Content Registration; T-Content Deregistration; L-List Local Content\n");
-		  printf("D-Download Content; O-List all the On-line Content; Q-Quit\n\n");
 		  break;
 		}
 		  // List local content
 		case 'L': {
 		  local_list();
+		  printf("%s\n", localnames);
 		  break;
 		}
 		  // List content on index
 		case 'O': {
+		  printf("O\n");
 		  break;
 		}
 		  // Download content
 		case 'D': {
+		  printf("D\n");
 		  break;
 		}
 		  // Deregister content
 		case 'T': {
+		  printf("T\n");
 		  break;
 		}
 		  // Quit
 		case 'Q': {
+		  printf("Q\n");
 		  break;
 		}
 		  // Command options
+		case '?': {
+		  printf("R-Content Registration; T-Content Deregistration; L-List Local Content\n");
+		  printf("D-Download Content; O-List all the On-line Content; Q-Quit\n\n");
+		}
 		default: {
-		  case '?': {
-			break;
-		  }
+		  break;
 		}
 	  }
 	} else {
 	  // Download content
+	  printf("NOT SET\n");
 	  server_download(s_sock);
 	}
   }
-  exit(0);
+  return 0;
 }
 
 void quit(int s_sock) {
@@ -171,9 +180,10 @@ void quit(int s_sock) {
 
 // List local content (code used from Lab 4 server program)
 void local_list() {
+  memset(localnames, 0, sizeof(localnames));
   DIR *directory;
   struct dirent *dir;
-  directory = opendir("./");
+  directory = opendir(".");
   if (directory) {
 	char fnamebuf[FILENAME_BUFF_SIZE];
 	// Clear filename buffer
@@ -184,16 +194,17 @@ void local_list() {
 	  j++;
 	  printf("%s", dir->d_name);
 	  // Skip first 2 lines
-	  if (j > 2) {
-		strcpy(fname, dir->d_name);
-		fname += strlen(dir->d_name);
-		*fname = '\n';
-		fname++;
-	  }
+
+	  strcpy(fname, dir->d_name);
+	  fname += strlen(dir->d_name);
+	  *fname = '\n';
+	  fname++;
+
 	}
 	// Null terminate buffer
 	*fname = '\0';
 	closedir(directory);
+	strcpy(localnames, fnamebuf);
   }
 }
 
