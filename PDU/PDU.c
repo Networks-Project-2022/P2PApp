@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include "PDU.h"
-const int MAX_PACKET_SIZE = 1460;
 // Creates a PDU with dynamic data size and returns a pointer to it
 struct PDU createPDU(enum PDU_TYPE type, char *data, int size) {
   struct PDU result;

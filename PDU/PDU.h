@@ -9,6 +9,7 @@
 #define PDUH
 
 #define DEFAULT_DATA_SIZE 100
+#define MAX_PACKET_SIZE 1460
 
 // PDU struct with type and data fields
 struct PDU {
