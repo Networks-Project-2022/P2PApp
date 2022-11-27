@@ -1,27 +1,30 @@
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 #include "PDU.h"
-// Creates a PDU with dynamic data size and returns a pointer to it
-struct PDU createPDU(enum PDU_TYPE type, char *data, int size) {
+// Creates a PDU with dynamic data length and returns a pointer to it
+struct PDU createPDU(enum PDU_TYPE type, int length) {
   struct PDU result;
-  if (size > MAX_PACKET_SIZE) {
+  if (length > MAX_PACKET_SIZE) {
+	result.type = ERROR;
+	printf("Passed invalid length to createPDU\n");
 	return result;
   }
-  char new_data[DEFAULT_DATA_SIZE];
-  if (type == CONTENT) {
-	result.data = (char *)calloc(size, sizeof(char));
-  } else {
-	result.data = new_data;
-  }
+  result.data = (char *)calloc(length, sizeof(char));
+  memset(result.data, '\0', length * sizeof(char));
   result.type = type;
   return result;
 }
 
-// Create a PDU based on data received over socket
-struct PDU receivePDU(const char *data) {
-  struct PDU result;
+// Take array of characters and turn into PDU struct
+struct PDU receivePDU(char *data, int length) {
+  struct PDU result = createPDU(data[0], length - 1);
+  strcpy(result.data, data + 1);
   return result;
 }
 
-// Writes contents of the PDU to the buffer passed in to be sent over socket
-void stringifyPDU(char *buf, struct PDU pdu) {}
-
+// Break PDU into string
+void sendPDU(struct PDU pdu, char *buf, int length) {
+  buf[0] = pdu.type;
+  for (int i = 0; i < length; i++) buf[i + 1] = pdu.data[i];
+}
