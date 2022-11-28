@@ -19,7 +19,9 @@ struct PDU createPDU(enum PDU_TYPE type, int length) {
 // Take array of characters and turn into PDU struct
 struct PDU receivePDU(char *data, int length) {
   struct PDU result = createPDU(data[0], length - 1);
-  strcpy(result.data, data + 1);
+  for (int i = 0; i < length - 1; i++) {
+	result.data[i] = data[i + 1];
+  }
   return result;
 }
 

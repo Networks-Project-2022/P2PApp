@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Socket created successfully, enter name to register with index server
-  printf("Enter a usr to register with the index server (20 character limit):\n");
+  printf("Enter a peer name to register content under on the index server (20 character limit):\n");
   scanf("%s", usr);
 
   // Initialize SELECT struct and table struct, monitoring for changes
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
 	  printf("Select error: %s\n", strerror(errno));
 	  exit(1);
 	}
-	// Select successful and FD is set, read command from usr
+	// Select successful and FD is set, read command from filename
 	if (FD_ISSET(0, &rfds)) {
 	  c = getchar();
 	  switch (c) {
