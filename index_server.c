@@ -48,7 +48,6 @@ int main(int argc, char *argv[]) {
   int s, n, i, len, p_sock; // Initialize socket descriptor and type
   int pdulen = sizeof(struct PDU);
   struct hostent *hp;
-  struct PDU rpdu;
   struct sockaddr_in fsin; // From address of a peer
 
   for (n = 0; n < MAXCON; n++) list[n].head = NULL;
@@ -90,11 +89,25 @@ int main(int argc, char *argv[]) {
   // Main loop
   ssize_t data;
   while (1) {
-	if ((data = recvfrom(s, &rpdu, sizeof(rpdu), 0, (struct sockaddr *)&fsin, &alen)) < 0) {
+	char rbuf[MAX_PACKET_SIZE];
+	memset(rbuf, '\0', sizeof(rbuf));
+
+	if ((data = recvfrom(s, &rbuf, sizeof(rbuf), 0, (struct sockaddr *)&fsin, &alen)) < 0) {
 	  printf("recvfrom error: %lu\n", data);
+	  char errMsg[] = "Check server status.";
+	  struct PDU err = createPDU(ERROR, sizeof(errMsg) / sizeof(char));
+	  err.data = errMsg;
+	  char errBuf[DEFAULT_DATA_SIZE + 1];
+	  sendPDU(err, errBuf, DEFAULT_DATA_SIZE + 1);
+	  sendto(s, &errBuf, sizeof(errBuf), 0, (struct sockaddr *)&fsin, sizeof(fsin));
 	} else {
+	  struct PDU rpdu = receivePDU(rbuf, MAX_PACKET_SIZE);
 	  switch (rpdu.type) {
 		case REGISTER: {
+		  struct PDU registerResponse = createPDU(ACK, DEFAULT_DATA_SIZE);
+		  char registerResponseBuf[DEFAULT_DATA_SIZE + 1];
+		  sendPDU(registerResponse, registerResponseBuf, DEFAULT_DATA_SIZE + 1);
+		  sendto(s, &registerResponseBuf, sizeof(registerResponseBuf), 0, (struct sockaddr *)&fsin, sizeof(fsin));
 		  break;
 		}
 		case CONTENT: {

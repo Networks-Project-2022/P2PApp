@@ -21,21 +21,23 @@
 #pragma ide diagnostic ignored "EndlessLoop"
 
 #define SERVER_PORT 10000 // Default port if none provided
-#define NAMESIZE 20 // Max name size
-#define FILENAME_BUFF_SIZE 100000 // Max filename size
+#define NAMESIZE 10 // Max name size
+#define FILENAME_BUFF_SIZE 1000 // Max filename size
 #define MAXCON 200 // Max connections peer can have open
 
 // Keep track of registered content
 struct {
   int val;
-  char name[NAMESIZE];
+  char name[FILENAME_BUFF_SIZE];
 } table[MAXCON];
 
 char usr[NAMESIZE];
 char localnames[FILENAME_BUFF_SIZE];
 char servernames[FILENAME_BUFF_SIZE];
 
-int s_sock, peer_port, fd, nfds;
+const char *filehome = "./";
+
+int s_sock, peer_port, fd, nfds, port;
 fd_set rfds, afds;
 
 // Function prototypes
@@ -46,6 +48,7 @@ void server_download(int);
 void deregistration(int, char *);
 void online_list(int);
 void local_list();
+void quit(int);
 void handler();
 
 int main(int argc, char *argv[]) {
@@ -128,6 +131,11 @@ int main(int argc, char *argv[]) {
 	  switch (c) {
 		// Register content
 		case 'R': {
+		  printf("Enter the name of the file you wish to register with the index server.\n");
+		  char filename[FILENAME_BUFF_SIZE];
+		  memset(filename, '\0', sizeof(filename));
+		  scanf("%s", filename);
+		  registration(s_sock, filename);
 		  break;
 		}
 		  // List local content
@@ -153,7 +161,7 @@ int main(int argc, char *argv[]) {
 		}
 		  // Quit
 		case 'Q': {
-		  printf("Q\n");
+		  quit(s_sock);
 		  break;
 		}
 		  // Command options
@@ -165,9 +173,9 @@ int main(int argc, char *argv[]) {
 		  break;
 		}
 	  }
+	  c = 0;
 	} else {
 	  // Download content
-	  printf("NOT SET\n");
 	  server_download(s_sock);
 	}
   }
@@ -176,6 +184,7 @@ int main(int argc, char *argv[]) {
 
 void quit(int s_sock) {
   /* De-register all the registrations in the index server        */
+  exit(0);
 }
 
 // List local content (code used from Lab 4 server program)
@@ -183,7 +192,7 @@ void local_list() {
   memset(localnames, 0, sizeof(localnames));
   DIR *directory;
   struct dirent *dir;
-  directory = opendir(".");
+  directory = opendir(filehome);
   if (directory) {
 	char fnamebuf[FILENAME_BUFF_SIZE];
 	// Clear filename buffer
@@ -235,11 +244,87 @@ void deregistration(int s_sock, char *name) {
 
 }
 
-void registration(int s_sock, char *name) {/* Create a TCP socket for content download
+/* Create a TCP socket for content download
                         <96> one socket per content;
            Register the content to the index server;
            Update nfds; */
+void registration(int s_sock, char *name) {
+  // Open and read file if it exists
+  char filepath[FILENAME_BUFF_SIZE];
+  memset(filepath, '\0', sizeof(filepath));
+  strcat(filepath, filehome);
+  strcat(filepath, name);
+  FILE *file = fopen(filepath, "rb");
+  if (file == NULL) {
+	printf("Error registering content - could not find or load file specified.\n");
+	return;
+  }
+  fclose(file);
 
+  // Create a new TCP socket for data
+  int content_sd = socket(AF_INET, SOCK_STREAM, 0);
+  if (content_sd == -1) {
+	printf("Could not create filename socket: %s\n", filepath);
+  } else {
+	// Bind to socket
+	struct sockaddr_in content_server;
+	bzero((char *)&content_server, sizeof(struct sockaddr_in));
+	content_server.sin_family = AF_INET;
+	content_server.sin_addr.s_addr = htonl(INADDR_ANY);
+	if (bind(content_sd, (struct sockaddr *)&content_server, sizeof(content_server)) == -1) {
+	  printf("Could not bind to socket - registration error\n");
+	  close(content_sd);
+	} else {
+	  // Gather registration data
+	  FD_SET(content_sd, &afds);
+	  nfds++;
+	  struct PDU registerData = createPDU(REGISTER, DEFAULT_DATA_SIZE);
+	  char *rp = registerData.data;
+	  strcpy(rp, usr);
+	  rp += 10;
+	  strcpy(rp, filepath);
+	  rp += 10;
+
+	  // Get port number and server address
+	  struct sockaddr_in sin;
+	  socklen_t len = sizeof(sin);
+	  if (getsockname(content_sd, (struct sockaddr *)&sin, &len) == -1)
+		printf("Could not get socket name");
+	  else {
+		// Send registration PDU to index server
+		strcpy(rp, inet_ntoa(sin.sin_addr));
+		rp += strlen(inet_ntoa(sin.sin_addr));
+		char *port_string = malloc(128);
+		snprintf(port_string, 128, ":%u", sin.sin_port);
+		strcpy(rp, port_string);
+		free(port_string);
+
+		// Convert PDU to string to be sent
+		char registerDataBuf[DEFAULT_DATA_SIZE + 1];
+		sendPDU(registerData, registerDataBuf, DEFAULT_DATA_SIZE + 1);
+		send(s_sock, registerDataBuf, sizeof(registerDataBuf), 0);
+
+		// Receive error or acknowledgement from index server
+		char registerResponseBuf[DEFAULT_DATA_SIZE + 1];
+		memset(registerResponseBuf, '\0', sizeof(registerResponseBuf));
+		read(s_sock, &registerResponseBuf, sizeof(registerResponseBuf));
+		struct PDU registerResponse = receivePDU(registerResponseBuf, DEFAULT_DATA_SIZE);
+		switch (registerResponse.type) {
+		  case ACK: {
+			printf("Content registered successfully and now available online for peers.\n");
+			break;
+		  }
+		  case ERROR: {
+			printf("Error: %s\n", registerResponse.data);
+			close(content_sd);
+			nfds--;
+			break;
+		  }
+		  default: printf("Error, unexpected response type from index server while registering\n");
+		}
+	  }
+	}
+  }
 }
 
 void handler() {
