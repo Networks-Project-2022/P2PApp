@@ -50,7 +50,7 @@ int main(int argc, char *argv[]) {
   int s, n, i, len, p_sock; // Initialize socket descriptor and type
   struct sockaddr_in fsin; // From address of a peer
 
-  for (n = 0; n < MAXCON; n++) list[n].head = NULL;
+  memset(list, '\0', sizeof(list));
 
   switch (argc) {
 	case 1: {
@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
 		  break;
 		}
 		  // List out content only, do not repeat content names
-		case AVAILABLE_CONTENT: {
+		case ONLINE_CONTENT: {
 		  online_list();
 		  break;
 		}
@@ -116,7 +116,6 @@ int main(int argc, char *argv[]) {
 	  }
 	}
   }
-  return 0;
 }
 
 void online_list() {
@@ -164,66 +163,50 @@ void registration(int s, const char *data, struct sockaddr_in *addr) {
 	if (!strcmp(list[j].usr, peerName)) {
 	  peerExists = 1;
 	  peerIndex = j;
-
-	  ENTRY *copy = malloc(sizeof(ENTRY));
-	  strcpy(copy->filename, list[peerIndex].head->filename);
-	  strcpy(copy->addr, list[peerIndex].head->addr);
-	  copy->count = list[peerIndex].head->count;
-	  ENTRY *copyHead = copy;
-	  ENTRY *head = list[peerIndex].head;
-	  while (head != NULL) {
-		if (!(strcmp(head->filename, contentName))) {
-		  contentExists = 1;
-		  break;
-		}
-		copyHead->next = malloc(sizeof(ENTRY));
-		strcpy(copyHead->filename, head->filename);
-		strcpy(copyHead->addr, head->addr);
-		copyHead->count = head->count;
-		copyHead->next = head->next;
-		head = head->next;
-	  }
-	  list[peerIndex].head = copy;
+	  break;
 	}
   }
-  // Add PDU to entry list, send back and ACK
-  if (contentExists == 0) {
-	ENTRY newContent;
-	strcpy(newContent.filename, contentName);
-	strcpy(newContent.addr, address);
-	newContent.count = 0;
-	newContent.next = NULL;
-	// Create a new peer list, add content as head if non-existent
-	if (peerExists == 0) {
-	  LIST newPeer;
-	  strcpy(newPeer.usr, peerName);
-	  newPeer.head = &newContent;
-	  list[max_index] = newPeer;
-	  max_index++;
-	} else {
-	  // Add content to existing peer list if possible
-	  ENTRY *copy = malloc(sizeof(ENTRY));
-	  strcpy(copy->filename, list[peerIndex].head->filename);
-	  strcpy(copy->addr, list[peerIndex].head->addr);
-	  copy->count = list[peerIndex].head->count;
-	  ENTRY *copyHead = copy;
-	  ENTRY *contentTail = list[peerIndex].head;
-	  while (contentTail != NULL) {
-		copy->next = malloc(sizeof(ENTRY));
-		strcpy(copyHead->filename, contentTail->filename);
-		strcpy(copyHead->addr, contentTail->addr);
-		copyHead->count = contentTail->count;
-		copyHead->next = contentTail->next;
-		contentTail = contentTail->next;
-	  }
-	  contentTail = &newContent;
-	  copyHead->next = contentTail;
-	  list[peerIndex].head = copy;
-	}
+
+  // Create new content entry
+  ENTRY *newContent = malloc(sizeof(ENTRY));
+  strcpy(newContent->filename, contentName);
+  strcpy(newContent->addr, address);
+  newContent->count = 0;
+  newContent->next = NULL;
+
+  // If peer does not exist, create a new entry with null head
+  if (peerExists == 0) {
+	LIST newPeer;
+	strcpy(newPeer.usr, peerName);
+	newPeer.head = NULL;
+	list[max_index] = newPeer;
+	peerIndex = max_index;
+	max_index++;
+  }
+  // Check if peer already has same content registered
+  ENTRY *head = list[peerIndex].head;
+  if (head == NULL) {
+	head = newContent;
+	list[peerIndex].head = head;
 	sendPDU(s, ACK, "\0", sizeof("\0") / sizeof(char), (const struct sockaddr *)addr);
   } else {
-	// Send back an error if content already exists on peer
-	char registerError[] = "Content name on that peer already exists.\0";
-	sendPDU(s, ERROR, registerError, sizeof(registerError) / sizeof(char), (const struct sockaddr *)addr);
+	ENTRY *tail = head;
+	while (tail->next != NULL) {
+	  if (!(strcmp(tail->filename, contentName))) {
+		contentExists = 1;
+	  }
+	  tail = tail->next;
+	}
+	if (!(strcmp(tail->filename, contentName))) {
+	  contentExists = 1;
+	}
+	if (contentExists == 0) {
+	  tail->next = newContent;
+	  list[peerIndex].head = head;
+	  sendPDU(s, ACK, "\0", sizeof("\0") / sizeof(char), (const struct sockaddr *)addr);
+	} else {
+	  char registerError[] = "Content name on that peer already exists.\0";
+	  sendPDU(s, ERROR, registerError, sizeof(registerError) / sizeof(char), (const struct sockaddr *)addr);
+	}
   }
 }

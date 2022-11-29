@@ -22,7 +22,7 @@ enum PDU_TYPE {
   SEARCH = 'S',
   DEREGISTER = 'T',
   CONTENT = 'C',
-  AVAILABLE_CONTENT = 'O',
+  ONLINE_CONTENT = 'O',
   ACK = 'A',
   ERROR = 'E',
 };
