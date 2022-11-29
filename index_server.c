@@ -38,7 +38,7 @@ LIST list[MAXCON];
 
 int max_index = 0;
 
-void online_list();
+void online_list(int s, struct sockaddr_in *addr);
 void search(int, char *, struct sockaddr_in *);
 void registration(int, const char *, struct sockaddr_in *);
 void deregistration(int, char *, struct sockaddr_in *);
@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
 		}
 		  // List out content only, do not repeat content names
 		case ONLINE_CONTENT: {
-		  online_list();
+		  online_list(s, &fsin);
 		  break;
 		}
 		case DEREGISTER: {
@@ -118,8 +118,48 @@ int main(int argc, char *argv[]) {
   }
 }
 
-void online_list() {
+void online_list(int s, struct sockaddr_in *addr) {
+  // Put all registered content into an array of strings
+  char onlineContent[MAXCON][DEFAULT_DATA_SIZE];
+  memset(onlineContent, '\0', sizeof(onlineContent));
+  int k = 0;
+  for (int i = 0; i < MAXCON; i++) {
+	ENTRY *content = malloc(sizeof(ENTRY));
+	if (list[i].head != NULL) {
+	  content = list[i].head;
+	  while (content != NULL) {
+		strcpy(onlineContent[k], content->filename);
+		strcat(onlineContent[k], "\n");
+		k++;
+		content = content->next;
+	  }
+	}
+	free(content);
+  }
 
+  // Take only unique elements from the array of strings
+  char uniqueContent[MAXCON][DEFAULT_DATA_SIZE];
+  memset(uniqueContent, '\0', sizeof(uniqueContent));
+  int uniqueIndex = 0;
+  for (int i = 0; i < MAXCON; i++) {
+	int unique = 1;
+	for (int j = i + 1; j < MAXCON; j++) {
+	  if (!strcmp(onlineContent[i], onlineContent[j])) {
+		unique = 0;
+		break;
+	  }
+	}
+	if (unique == 1) {
+	  strcpy(uniqueContent[uniqueIndex], onlineContent[i]);
+	  uniqueIndex++;
+	}
+  }
+  char onlineResponse[DEFAULT_DATA_SIZE];
+  memset(onlineResponse, '\0', sizeof(onlineResponse));
+  for (int i = 0; i < MAXCON; i++) {
+	strcat(onlineResponse, uniqueContent[i]);
+  }
+  sendPDU(s, ONLINE_CONTENT, onlineResponse, sizeof(onlineResponse) / sizeof(char), (const struct sockaddr *)addr);
 }
 
 void search(int s, char *data, struct sockaddr_in *addr) {
@@ -205,7 +245,7 @@ void registration(int s, const char *data, struct sockaddr_in *addr) {
 	  list[peerIndex].head = head;
 	  sendPDU(s, ACK, "\0", sizeof("\0") / sizeof(char), (const struct sockaddr *)addr);
 	} else {
-	  char registerError[] = "Content name on that peer already exists.\0";
+	  char registerError[] = "Content name on that peer already exists. Please choose another\0";
 	  sendPDU(s, ERROR, registerError, sizeof(registerError) / sizeof(char), (const struct sockaddr *)addr);
 	}
   }

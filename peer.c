@@ -146,7 +146,7 @@ int main(int argc, char *argv[]) {
 		}
 		  // List content on index
 		case 'O': {
-		  printf("O\n");
+		  online_list(s_sock);
 		  break;
 		}
 		  // Download content
@@ -219,6 +219,19 @@ void local_list() {
 
 void online_list(int s_sock) {
   /* Contact index server to acquire the list of content */
+  sendPDU(s_sock, ONLINE_CONTENT, "\0", sizeof("\0"), NULL);
+  char onlineContentBuf[DEFAULT_DATA_SIZE + 1];
+  memset(onlineContentBuf, '\0', sizeof(onlineContentBuf));
+  read(s_sock, &onlineContentBuf, sizeof(onlineContentBuf));
+  struct PDU onlineContent = receivePDU(onlineContentBuf, DEFAULT_DATA_SIZE);
+  switch (onlineContent.type) {
+	case ONLINE_CONTENT: {
+	  if (strlen(onlineContent.data) == 0) printf("No content currently on the index server.\n");
+	  else printf("%s", onlineContent.data);
+	  break;
+	}
+	default: printf("Error, unexpected response from index server.\n%s", onlineContent.data);
+  }
 }
 
 void server_download(int s_sock) {
@@ -315,6 +328,8 @@ void registration(int s_sock, char *name) {
 		  }
 		  case ERROR: {
 			printf("Error: %s\n", registerResponse.data);
+			printf("Enter a peer name to register content under on the index server (20 character limit):\n");
+			scanf("%s", usr);
 			close(content_sd);
 			nfds--;
 			break;
