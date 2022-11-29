@@ -39,8 +39,9 @@ int max_index = 0;
 
 struct PDU tpdu;
 
+void online_list();
 void search(int, char *, struct sockaddr_in *);
-void registration(int, char *, struct sockaddr_in *);
+void registration(int, const char *, struct sockaddr_in *);
 void deregistration(int, char *, struct sockaddr_in *);
 
 int main(int argc, char *argv[]) {
@@ -50,7 +51,6 @@ int main(int argc, char *argv[]) {
   char name[NAMESIZE], usr[NAMESIZE];
   unsigned int alen = sizeof(struct sockaddr_in);
   int s, n, i, len, p_sock; // Initialize socket descriptor and type
-  int pdulen = sizeof(struct PDU);
   struct hostent *hp;
   struct sockaddr_in fsin; // From address of a peer
 
@@ -110,77 +110,15 @@ int main(int argc, char *argv[]) {
 	  struct PDU rpdu = receivePDU(rbuf, MAX_PACKET_SIZE);
 	  switch (rpdu.type) {
 		case REGISTER: {
-		  // Check if a peer with the given name already exists on the server
-		  // First extract peer name from registration PDU
-		  char peerName[NAMESIZE];
-		  char contentName[FILENAME_BUFF_SIZE];
-		  char address[DEFAULT_DATA_SIZE];
-		  for (int j = 0; j < 20; j++) {
-			if (j < 10) peerName[j] = rpdu.data[j];
-			else {
-			  contentName[j - 10] = rpdu.data[j];
-			}
-		  }
-		  int j = 20;
-		  while (rpdu.data[j] != '\0') {
-			address[j - 20] = rpdu.data[j];
-			j++;
-		  }
-		  int peerIndex = 0;
-		  int peerExists = 0;
-		  int contentExists = 0;
-		  for (j = 0; j < MAXCON; j++) {
-			// Peer name exists, check to see if it already has the same content registered
-			if (!strcmp(list[j].usr, peerName)) {
-			  peerExists = 1;
-			  peerIndex = j;
-			  ENTRY *head = list[j].head;
-			  while (head != NULL) {
-				if (!(strcmp(head->filename, contentName))) {
-				  contentExists = 1;
-				  break;
-				}
-				head = head->next;
-			  }
-			}
-		  }
-		  // Add PDU to entry list, send back and ACK
-		  if (contentExists == 0) {
-			ENTRY newContent;
-			strcpy(newContent.filename, contentName);
-			strcpy(newContent.addr, address);
-			newContent.next = NULL;
-			// Create a new peer list, add content as head if non-existent
-			if (peerExists == 0) {
-			  LIST newPeer;
-			  strcpy(newPeer.usr, peerName);
-			  newPeer.head = &newContent;
-			  list[max_index] = newPeer;
-			  max_index++;
-			} else {
-			  // Add content to existing peer list if possible
-			  ENTRY *contentTail = list[peerIndex].head;
-			  while (contentTail->next != NULL) {
-				contentTail = contentTail->next;
-			  }
-			  contentTail->next = &newContent;
-			}
-
-			struct PDU registerResponse = createPDU(ACK, DEFAULT_DATA_SIZE);
-			char registerResponseBuf[DEFAULT_DATA_SIZE + 1];
-			sendPDU(registerResponse, registerResponseBuf, DEFAULT_DATA_SIZE + 1);
-			sendto(s, &registerResponseBuf, sizeof(registerResponseBuf), 0, (struct sockaddr *)&fsin, sizeof(fsin));
-		  } else {
-			// Send back an error if content already exists on peer
-			struct PDU registerError = createPDU(ERROR, DEFAULT_DATA_SIZE);
-			strcpy(registerError.data, "Content name on that peer already exists.\0");
-			char registerErrorBuf[DEFAULT_DATA_SIZE + 1];
-			sendPDU(registerError, registerErrorBuf, DEFAULT_DATA_SIZE + 1);
-			sendto(s, &registerErrorBuf, sizeof(registerErrorBuf), 0, (struct sockaddr *)&fsin, sizeof(fsin));
-		  }
+		  registration(s, rpdu.data, &fsin);
 		  break;
 		}
 		case CONTENT: {
+		  break;
+		}
+		  // List out content only, do not repeat content names
+		case AVAILABLE_CONTENT: {
+		  online_list();
 		  break;
 		}
 		case DEREGISTER: {
@@ -190,6 +128,10 @@ int main(int argc, char *argv[]) {
 	}
   }
   return 0;
+}
+
+void online_list() {
+
 }
 
 void search(int s, char *data, struct sockaddr_in *addr) {
@@ -203,7 +145,89 @@ void deregistration(int s, char *data, struct sockaddr_in *addr) {
   */
 }
 
-void registration(int s, char *data, struct sockaddr_in *addr) {
-  /* Register the content and the server of the content
-  */
+// Register the content and the server of the content
+void registration(int s, const char *data, struct sockaddr_in *addr) {
+  // Send back an error if max connections are reached.
+  if (max_index == MAXCON) {
+	struct PDU maxError = createPDU(ERROR, DEFAULT_DATA_SIZE);
+	strcpy(maxError.data, "Max number of connections reached, try again later\0");
+	char maxErrorBuf[DEFAULT_DATA_SIZE + 1];
+	sendPDU(maxError, maxErrorBuf, DEFAULT_DATA_SIZE + 1);
+	sendto(s, &maxErrorBuf, sizeof(maxErrorBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
+	return;
+  }
+  char peerName[NAMESIZE];
+  char contentName[FILENAME_BUFF_SIZE];
+  char address[DEFAULT_DATA_SIZE];
+  for (int j = 0; j < 20; j++) {
+	if (j < 10) peerName[j] = data[j];
+	else {
+	  contentName[j - 10] = data[j];
+	}
+  }
+  int j = 20;
+  while (data[j] != '\0') {
+	address[j - 20] = data[j];
+	j++;
+  }
+  int peerIndex = 0;
+  int peerExists = 0;
+  int contentExists = 0;
+  for (j = 0; j < MAXCON; j++) {
+	// Peer name exists, check to see if it already has the same content registered
+	if (!strcmp(list[j].usr, peerName)) {
+	  peerExists = 1;
+	  peerIndex = j;
+	  ENTRY *head = list[j].head;
+	  while (head != NULL) {
+		if (!(strcmp(head->filename, contentName))) {
+		  contentExists = 1;
+		  break;
+		}
+		head = head->next;
+	  }
+	}
+  }
+  // Add PDU to entry list, send back and ACK
+  if (contentExists == 0) {
+	if (max_index == MAXCON) {
+	  struct PDU registerError = createPDU(ERROR, DEFAULT_DATA_SIZE);
+	  strcpy(registerError.data, "Content name on that peer already exists.\0");
+	  char registerErrorBuf[DEFAULT_DATA_SIZE + 1];
+	  sendPDU(registerError, registerErrorBuf, DEFAULT_DATA_SIZE + 1);
+	  sendto(s, &registerErrorBuf, sizeof(registerErrorBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
+	}
+	ENTRY newContent;
+	strcpy(newContent.filename, contentName);
+	strcpy(newContent.addr, address);
+	newContent.next = NULL;
+	// Create a new peer list, add content as head if non-existent
+	if (peerExists == 0) {
+	  LIST newPeer;
+	  strcpy(newPeer.usr, peerName);
+	  newPeer.head = &newContent;
+	  list[max_index] = newPeer;
+	  max_index++;
+	} else {
+	  // Add content to existing peer list if possible
+	  ENTRY *contentTail = list[peerIndex].head;
+	  while (contentTail->next != NULL) {
+		printf("here\n");
+		contentTail = contentTail->next;
+	  }
+	  contentTail->next = &newContent;
+	}
+
+	struct PDU registerResponse = createPDU(ACK, DEFAULT_DATA_SIZE);
+	char registerResponseBuf[DEFAULT_DATA_SIZE + 1];
+	sendPDU(registerResponse, registerResponseBuf, DEFAULT_DATA_SIZE + 1);
+	sendto(s, &registerResponseBuf, sizeof(registerResponseBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
+  } else {
+	// Send back an error if content already exists on peer
+	struct PDU registerError = createPDU(ERROR, DEFAULT_DATA_SIZE);
+	strcpy(registerError.data, "Content name on that peer already exists.\0");
+	char registerErrorBuf[DEFAULT_DATA_SIZE + 1];
+	sendPDU(registerError, registerErrorBuf, DEFAULT_DATA_SIZE + 1);
+	sendto(s, &registerErrorBuf, sizeof(registerErrorBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
+  }
 }
