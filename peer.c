@@ -252,7 +252,7 @@ void registration(int s_sock, char *name) {
   // Open and read file if it exists
   char filepath[FILENAME_BUFF_SIZE];
   memset(filepath, '\0', sizeof(filepath));
-  strcat(filepath, filehome);
+  strcpy(filepath, filehome);
   strcat(filepath, name);
   FILE *file = fopen(filepath, "rb");
   if (file == NULL) {
@@ -278,8 +278,9 @@ void registration(int s_sock, char *name) {
 	  // Gather registration data
 	  FD_SET(content_sd, &afds);
 	  nfds++;
-	  struct PDU registerData = createPDU(REGISTER, DEFAULT_DATA_SIZE);
-	  char *rp = registerData.data;
+	  char registerData[DEFAULT_DATA_SIZE];
+	  memset(registerData, '\0', sizeof(registerData));
+	  char *rp = registerData;
 	  strcpy(rp, usr);
 	  rp += 10;
 	  strcpy(rp, filepath);
@@ -300,9 +301,7 @@ void registration(int s_sock, char *name) {
 		free(port_string);
 
 		// Convert PDU to string to be sent
-		char registerDataBuf[DEFAULT_DATA_SIZE + 1];
-		sendPDU(registerData, registerDataBuf, DEFAULT_DATA_SIZE + 1);
-		send(s_sock, registerDataBuf, sizeof(registerDataBuf), 0);
+		sendPDU(s_sock, REGISTER, registerData, DEFAULT_DATA_SIZE, NULL);
 
 		// Receive error or acknowledgement from index server
 		char registerResponseBuf[DEFAULT_DATA_SIZE + 1];
@@ -320,7 +319,7 @@ void registration(int s_sock, char *name) {
 			nfds--;
 			break;
 		  }
-		  default: printf("Error, unexpected response type from index server while registering\n");
+		  default: printf("Error, unexpected response type from index server while registering.\n");
 		}
 	  }
 	}

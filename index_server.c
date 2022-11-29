@@ -25,6 +25,7 @@ typedef struct entry {
   char addr[DEFAULT_DATA_SIZE];
   short count;
   struct entry *next;
+  struct entry *prev;
 } ENTRY;
 
 // Structure defining the content of a single peer
@@ -37,8 +38,6 @@ LIST list[MAXCON];
 
 int max_index = 0;
 
-struct PDU tpdu;
-
 void online_list();
 void search(int, char *, struct sockaddr_in *);
 void registration(int, const char *, struct sockaddr_in *);
@@ -46,12 +45,9 @@ void deregistration(int, char *, struct sockaddr_in *);
 
 int main(int argc, char *argv[]) {
   struct sockaddr_in sin, *p_addr; // From address for client
-  ENTRY *p_entry;
   int s_port = SERVER_PORT; // Assign port number
-  char name[NAMESIZE], usr[NAMESIZE];
   unsigned int alen = sizeof(struct sockaddr_in);
   int s, n, i, len, p_sock; // Initialize socket descriptor and type
-  struct hostent *hp;
   struct sockaddr_in fsin; // From address of a peer
 
   for (n = 0; n < MAXCON; n++) list[n].head = NULL;
@@ -93,21 +89,14 @@ int main(int argc, char *argv[]) {
   // Main loop
   ssize_t data;
   while (1) {
-	char rbuf[MAX_PACKET_SIZE];
-	memset(rbuf, '\0', sizeof(rbuf));
-
+	char rbuf[MAX_DATA_SIZE];
 	// Send error PDU in case socket cannot receive data
 	if ((data = recvfrom(s, &rbuf, sizeof(rbuf), 0, (struct sockaddr *)&fsin, &alen)) < 0) {
 	  printf("recvfrom error: %lu\n", data);
-	  char errMsg[] = "Check server status.";
-	  struct PDU err = createPDU(ERROR, sizeof(errMsg) / sizeof(char));
-	  err.data = errMsg;
-	  char errBuf[DEFAULT_DATA_SIZE + 1];
-	  memset(errBuf, '\0', sizeof(errBuf));
-	  sendPDU(err, errBuf, DEFAULT_DATA_SIZE + 1);
-	  sendto(s, &errBuf, sizeof(errBuf), 0, (struct sockaddr *)&fsin, sizeof(fsin));
+	  char errMsg[] = "Check server status.\0";
+	  sendPDU(s, ERROR, errMsg, sizeof(errMsg) / sizeof(char), (const struct sockaddr *)&fsin);
 	} else {
-	  struct PDU rpdu = receivePDU(rbuf, MAX_PACKET_SIZE);
+	  struct PDU rpdu = receivePDU(rbuf, MAX_DATA_SIZE);
 	  switch (rpdu.type) {
 		case REGISTER: {
 		  registration(s, rpdu.data, &fsin);
@@ -149,11 +138,8 @@ void deregistration(int s, char *data, struct sockaddr_in *addr) {
 void registration(int s, const char *data, struct sockaddr_in *addr) {
   // Send back an error if max connections are reached.
   if (max_index == MAXCON) {
-	struct PDU maxError = createPDU(ERROR, DEFAULT_DATA_SIZE);
-	strcpy(maxError.data, "Max number of connections reached, try again later\0");
-	char maxErrorBuf[DEFAULT_DATA_SIZE + 1];
-	sendPDU(maxError, maxErrorBuf, DEFAULT_DATA_SIZE + 1);
-	sendto(s, &maxErrorBuf, sizeof(maxErrorBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
+	char errMsg[] = "Max number of connections reached, try again later\0";
+	sendPDU(s, ERROR, errMsg, sizeof(errMsg) / sizeof(char), (const struct sockaddr *)addr);
 	return;
   }
   char peerName[NAMESIZE];
@@ -178,28 +164,34 @@ void registration(int s, const char *data, struct sockaddr_in *addr) {
 	if (!strcmp(list[j].usr, peerName)) {
 	  peerExists = 1;
 	  peerIndex = j;
-	  ENTRY *head = list[j].head;
+
+	  ENTRY *copy = malloc(sizeof(ENTRY));
+	  strcpy(copy->filename, list[peerIndex].head->filename);
+	  strcpy(copy->addr, list[peerIndex].head->addr);
+	  copy->count = list[peerIndex].head->count;
+	  ENTRY *copyHead = copy;
+	  ENTRY *head = list[peerIndex].head;
 	  while (head != NULL) {
 		if (!(strcmp(head->filename, contentName))) {
 		  contentExists = 1;
 		  break;
 		}
+		copyHead->next = malloc(sizeof(ENTRY));
+		strcpy(copyHead->filename, head->filename);
+		strcpy(copyHead->addr, head->addr);
+		copyHead->count = head->count;
+		copyHead->next = head->next;
 		head = head->next;
 	  }
+	  list[peerIndex].head = copy;
 	}
   }
   // Add PDU to entry list, send back and ACK
   if (contentExists == 0) {
-	if (max_index == MAXCON) {
-	  struct PDU registerError = createPDU(ERROR, DEFAULT_DATA_SIZE);
-	  strcpy(registerError.data, "Content name on that peer already exists.\0");
-	  char registerErrorBuf[DEFAULT_DATA_SIZE + 1];
-	  sendPDU(registerError, registerErrorBuf, DEFAULT_DATA_SIZE + 1);
-	  sendto(s, &registerErrorBuf, sizeof(registerErrorBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
-	}
 	ENTRY newContent;
 	strcpy(newContent.filename, contentName);
 	strcpy(newContent.addr, address);
+	newContent.count = 0;
 	newContent.next = NULL;
 	// Create a new peer list, add content as head if non-existent
 	if (peerExists == 0) {
@@ -210,24 +202,28 @@ void registration(int s, const char *data, struct sockaddr_in *addr) {
 	  max_index++;
 	} else {
 	  // Add content to existing peer list if possible
+	  ENTRY *copy = malloc(sizeof(ENTRY));
+	  strcpy(copy->filename, list[peerIndex].head->filename);
+	  strcpy(copy->addr, list[peerIndex].head->addr);
+	  copy->count = list[peerIndex].head->count;
+	  ENTRY *copyHead = copy;
 	  ENTRY *contentTail = list[peerIndex].head;
-	  while (contentTail->next != NULL) {
-		printf("here\n");
+	  while (contentTail != NULL) {
+		copy->next = malloc(sizeof(ENTRY));
+		strcpy(copyHead->filename, contentTail->filename);
+		strcpy(copyHead->addr, contentTail->addr);
+		copyHead->count = contentTail->count;
+		copyHead->next = contentTail->next;
 		contentTail = contentTail->next;
 	  }
-	  contentTail->next = &newContent;
+	  contentTail = &newContent;
+	  copyHead->next = contentTail;
+	  list[peerIndex].head = copy;
 	}
-
-	struct PDU registerResponse = createPDU(ACK, DEFAULT_DATA_SIZE);
-	char registerResponseBuf[DEFAULT_DATA_SIZE + 1];
-	sendPDU(registerResponse, registerResponseBuf, DEFAULT_DATA_SIZE + 1);
-	sendto(s, &registerResponseBuf, sizeof(registerResponseBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
+	sendPDU(s, ACK, "\0", sizeof("\0") / sizeof(char), (const struct sockaddr *)addr);
   } else {
 	// Send back an error if content already exists on peer
-	struct PDU registerError = createPDU(ERROR, DEFAULT_DATA_SIZE);
-	strcpy(registerError.data, "Content name on that peer already exists.\0");
-	char registerErrorBuf[DEFAULT_DATA_SIZE + 1];
-	sendPDU(registerError, registerErrorBuf, DEFAULT_DATA_SIZE + 1);
-	sendto(s, &registerErrorBuf, sizeof(registerErrorBuf), 0, (const struct sockaddr *)addr, sizeof(*addr));
+	char registerError[] = "Content name on that peer already exists.\0";
+	sendPDU(s, ERROR, registerError, sizeof(registerError) / sizeof(char), (const struct sockaddr *)addr);
   }
 }

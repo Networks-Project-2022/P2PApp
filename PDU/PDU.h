@@ -4,8 +4,10 @@
 #ifndef PDUH
 #define PDUH
 
+#include <sys/socket.h>
+
 #define DEFAULT_DATA_SIZE 100
-#define MAX_PACKET_SIZE 1427
+#define MAX_DATA_SIZE 1426
 
 // PDU struct with type and data fields
 struct PDU {
@@ -27,7 +29,7 @@ enum PDU_TYPE {
 
 struct PDU createPDU(enum PDU_TYPE type, int length);
 struct PDU receivePDU(char *data, int length);
-void sendPDU(struct PDU pdu, char *buf, int length);
+void sendPDU(int s, enum PDU_TYPE type, const char *data, int dataLength, const struct sockaddr *addr);
 
 #endif
 
