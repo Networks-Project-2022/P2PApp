@@ -22,17 +22,17 @@
 
 #define SERVER_PORT 10000 // Default port if none provided
 #define NAMESIZE 10 // Max name size
-#define FILENAME_BUFF_SIZE 1000 // Max filename size
+#define FILENAME_BUFF_SIZE 10 // Max filename size
 #define MAXCON 200 // Max connections peer can have open
 
 // Keep track of registered content
 struct {
   int val;
-  char name[FILENAME_BUFF_SIZE];
+  char name[NAMESIZE];
 } table[MAXCON];
 
 char usr[NAMESIZE];
-char localnames[FILENAME_BUFF_SIZE];
+char localnames[1000];
 char servernames[FILENAME_BUFF_SIZE];
 
 const char *filehome = "./";
@@ -42,9 +42,9 @@ fd_set rfds, afds;
 
 // Function prototypes
 void registration(int, char *);
-int search_content(int, char *, struct PDU *);
+int search_content(int, char *);
 int client_download(char *, struct PDU *);
-void server_download(int);
+void server_download();
 void deregistration(int, char *);
 void online_list(int);
 void local_list();
@@ -54,10 +54,9 @@ void handler();
 int main(int argc, char *argv[]) {
   int s_port = SERVER_PORT;
   int n;
-  int alen = sizeof(struct sockaddr_in);
   struct hostent *hp;
   struct sockaddr_in server;
-  char c, *host, name[NAMESIZE];
+  char c, *host;
   struct sigaction sa;
 
   switch (argc) {
@@ -151,7 +150,11 @@ int main(int argc, char *argv[]) {
 		}
 		  // Download content
 		case 'D': {
-		  printf("D\n");
+		  printf("Enter the full file name of the content you wish to download.\n");
+		  char filename[FILENAME_BUFF_SIZE];
+		  memset(filename, '\0', sizeof(filename));
+		  scanf("%s", filename);
+		  search_content(s_sock, filename);
 		  break;
 		}
 		  // Deregister content
@@ -173,10 +176,9 @@ int main(int argc, char *argv[]) {
 		  break;
 		}
 	  }
-	  c = 0;
 	} else {
 	  // Download content
-	  server_download(s_sock);
+	  server_download();
 	}
   }
   return 0;
@@ -194,7 +196,7 @@ void local_list() {
   struct dirent *dir;
   directory = opendir(filehome);
   if (directory) {
-	char fnamebuf[FILENAME_BUFF_SIZE];
+	char fnamebuf[1000];
 	// Clear filename buffer
 	memset(fnamebuf, 0, sizeof(fnamebuf));
 	char *fname = fnamebuf;
@@ -234,15 +236,67 @@ void online_list(int s_sock) {
   }
 }
 
-void server_download(int s_sock) {
+void server_download() {
+  int client_len, old_sd, new_sd;
+  struct sockaddr_in client;
+  client_len = sizeof(client);
+  int setIndex = -1;
+  for (int i = 0; i < MAXCON; i++) {
+	if (table[i].val != -1 && FD_ISSET(table[i].val, &rfds)) {
+	  setIndex = i;
+	  break;
+	}
+  }
+  old_sd = table[setIndex].val;
+  new_sd = accept(old_sd, (struct sockaddr *)&client, &client_len);
+  if (new_sd < 0) {
+	printf("Could not accept client\n");
+	return;
+  }
+
+  switch (fork()) {
+	case 0: {
+	  close(old_sd);
+	  char fileData[MAX_DATA_SIZE];
+	  for (int i = 0; i < MAXCON; i++) {
+		if (FD_ISSET(table[i].val, &rfds)) {
+		  switch (fork()) {
+
+		  }
+		  FILE *file = fopen(table[i].name, "rb");
+		  if (file == NULL) {
+			char downloadError[] = "Could not find specified file\0";
+			sendPDU(table[i].val, ERROR, downloadError, sizeof(downloadError) / sizeof(char), NULL);
+			return;
+		  }
+		  while (fgets(fileData, sizeof(fileData), file)) {
+			sendPDU(table[i].val, DOWNLOAD, fileData, sizeof(fileData) / sizeof(char), NULL);
+			// clear buffer between reads
+			memset(fileData, 0, sizeof(fileData));
+		  }
+		  // close file and sd once done
+		  fclose(file);
+		}
+	  }
+	  break;
+	}
+	case -1: printf("fork error\n");
+	  break;
+	default: close(new_sd);
+
+  }
   /* Respond to the download request from a peer  */
 }
 
-int search_content(int s_sock, char *name, struct PDU *rpdu) {
+int search_content(int s_sock, char *name) {
   /* Contact index server to search for the content
 	 If the content is available, the index server will return
 	 the IP address and port number of the content server.        */
-
+  sendPDU(s_sock, SEARCH, name, FILENAME_BUFF_SIZE, NULL);
+  char searchResponseBuf[DEFAULT_DATA_SIZE + 1];
+  memset(searchResponseBuf, '\0', sizeof(searchResponseBuf));
+  read(s_sock, &searchResponseBuf, sizeof(searchResponseBuf));
+  struct PDU searchResponse = receivePDU(searchResponseBuf, DEFAULT_DATA_SIZE);
 
 }
 
@@ -289,8 +343,6 @@ void registration(int s_sock, char *name) {
 	  close(content_sd);
 	} else {
 	  // Gather registration data
-	  FD_SET(content_sd, &afds);
-	  nfds++;
 	  char registerData[DEFAULT_DATA_SIZE];
 	  memset(registerData, '\0', sizeof(registerData));
 	  char *rp = registerData;
@@ -298,6 +350,19 @@ void registration(int s_sock, char *name) {
 	  rp += 10;
 	  strcpy(rp, filepath);
 	  rp += 10;
+
+
+	  // Listen on select
+	  FD_SET(content_sd, &rfds);
+	  for (int i = 0; i < MAXCON; i++) {
+		if (table[i].val != -1) {
+		  table[i].val = content_sd;
+		  strcpy(table[i].name, filepath);
+		  break;
+		}
+	  }
+	  nfds++;
+	  listen(content_sd, MAXCON);
 
 	  // Get port number and server address
 	  struct sockaddr_in sin;
@@ -327,11 +392,17 @@ void registration(int s_sock, char *name) {
 			break;
 		  }
 		  case ERROR: {
+			for (int i = 0; i < MAXCON; i++) {
+			  if (table[i].val != -1) {
+				table[i].val = -1;
+				break;
+			  }
+			}
+			close(content_sd);
+			nfds--;
 			printf("Error: %s\n", registerResponse.data);
 			printf("Enter a peer name to register content under on the index server (20 character limit):\n");
 			scanf("%s", usr);
-			close(content_sd);
-			nfds--;
 			break;
 		  }
 		  default: printf("Error, unexpected response type from index server while registering.\n");

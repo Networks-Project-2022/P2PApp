@@ -105,6 +105,10 @@ int main(int argc, char *argv[]) {
 		case CONTENT: {
 		  break;
 		}
+		case SEARCH: {
+		  search(s, rpdu.data, &fsin);
+		  break;
+		}
 		  // List out content only, do not repeat content names
 		case ONLINE_CONTENT: {
 		  online_list(s, &fsin);
@@ -163,9 +167,26 @@ void online_list(int s, struct sockaddr_in *addr) {
 }
 
 void search(int s, char *data, struct sockaddr_in *addr) {
-  /* Search content list and return the answer:
-	 If found, send the address of the selected content server.
-  */
+  // Traverse linked list, find filename with lowest count and send back result
+  int lowestCount = 0;
+  char result[DEFAULT_DATA_SIZE];
+  memset(result, '\0', sizeof(result));
+  for (int i = 0; i < MAXCON; i++) {
+	ENTRY *content = malloc(sizeof(ENTRY));
+	if (list[i].head != NULL) {
+	  content = list[i].head;
+	  while (content != NULL) {
+		if (!(strcmp(content->filename, data))) {
+		  if (content->count <= lowestCount) {
+
+			strcpy(result, content->addr);
+		  }
+		}
+		content = content->next;
+	  }
+	}
+	free(content);
+  }
 }
 
 void deregistration(int s, char *data, struct sockaddr_in *addr) {
