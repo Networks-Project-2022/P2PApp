@@ -25,7 +25,6 @@ typedef struct entry {
   char addr[DEFAULT_DATA_SIZE];
   short count;
   struct entry *next;
-  struct entry *prev;
 } ENTRY;
 
 // Structure defining the content of a single peer
@@ -170,23 +169,39 @@ void search(int s, char *data, struct sockaddr_in *addr) {
   // Traverse linked list, find filename with lowest count and send back result
   int lowestCount = 0;
   char result[DEFAULT_DATA_SIZE];
+
+  // Increment data pointer past peer name
+  char *dp = data + NAMESIZE;
+
+  ENTRY *content = NULL;
+  ENTRY *chosenContent = NULL;
   memset(result, '\0', sizeof(result));
   for (int i = 0; i < MAXCON; i++) {
-	ENTRY *content = malloc(sizeof(ENTRY));
+	content = malloc(sizeof(ENTRY));
 	if (list[i].head != NULL) {
 	  content = list[i].head;
 	  while (content != NULL) {
-		if (!(strcmp(content->filename, data))) {
+		if (!(strcmp(content->filename, dp))) {
 		  if (content->count <= lowestCount) {
-
-			strcpy(result, content->addr);
+			chosenContent = content;
 		  }
 		}
 		content = content->next;
 	  }
 	}
-	free(content);
   }
+  if (chosenContent != NULL) {
+	chosenContent->count += 1;
+	strcpy(result, chosenContent->addr);
+  }
+  if (strlen(result) == 0) {
+	// Let client know file cannot be found
+	char errMsg[] = "Content could not be found.\0";
+	sendPDU(s, ERROR, errMsg, sizeof(errMsg) / sizeof(char), (const struct sockaddr *)addr);
+  }
+  sendPDU(s, SEARCH, result, sizeof(result) / sizeof(char), (const struct sockaddr *)addr);
+  free(chosenContent);
+  free(content);
 }
 
 void deregistration(int s, char *data, struct sockaddr_in *addr) {

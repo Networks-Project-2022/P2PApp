@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <ctype.h>
 
 #include "PDU/PDU.h"
 
@@ -43,7 +44,7 @@ fd_set rfds, afds;
 // Function prototypes
 void registration(int, char *);
 int search_content(int, char *);
-int client_download(char *, struct PDU *);
+int client_download(char *name, struct PDU *);
 void server_download();
 void deregistration(int, char *);
 void online_list(int);
@@ -120,11 +121,22 @@ int main(int argc, char *argv[]) {
   while (1) {
 	printf("Command:\n");
 	memcpy(&rfds, &afds, sizeof(rfds));
-	if (select(nfds, &rfds, NULL, NULL, NULL) == -1) {
+	if (select(nfds + 1, &rfds, NULL, NULL, NULL) < 0) {
 	  printf("Select error: %s\n", strerror(errno));
 	  exit(1);
 	}
-	// Select successful and FD is set, read command from filename
+	printf("Command:\n");
+	for (int i = 0; i < MAXCON; i++) {
+	  if (table[i].val != -1)
+		printf("socket: %d\tfilepath: %s\tready: %d\n", table[i].val, table[i].name, FD_ISSET(table[i].val, &rfds));
+	}
+
+	// Read from stdin
+	if (!FD_ISSET(0, &rfds)) {
+	  // Download content
+	  printf("here??\n");
+	  server_download();
+	}
 	if (FD_ISSET(0, &rfds)) {
 	  c = getchar();
 	  switch (c) {
@@ -176,9 +188,6 @@ int main(int argc, char *argv[]) {
 		  break;
 		}
 	  }
-	} else {
-	  // Download content
-	  server_download();
 	}
   }
   return 0;
@@ -189,7 +198,7 @@ void quit(int s_sock) {
   exit(0);
 }
 
-// List local content (code used from Lab 4 server program)
+// List local content
 void local_list() {
   memset(localnames, 0, sizeof(localnames));
   DIR *directory;
@@ -219,6 +228,7 @@ void local_list() {
   }
 }
 
+// List out content registered on index server
 void online_list(int s_sock) {
   /* Contact index server to acquire the list of content */
   sendPDU(s_sock, ONLINE_CONTENT, "\0", sizeof("\0"), NULL);
@@ -236,10 +246,12 @@ void online_list(int s_sock) {
   }
 }
 
+// Respond to the download request from a peer
 void server_download() {
-  int client_len, old_sd, new_sd;
+  printf("are we here???\n");
+  int old_sd, new_sd;
   struct sockaddr_in client;
-  client_len = sizeof(client);
+  socklen_t client_len = sizeof(client);
   int setIndex = -1;
   for (int i = 0; i < MAXCON; i++) {
 	if (table[i].val != -1 && FD_ISSET(table[i].val, &rfds)) {
@@ -285,25 +297,68 @@ void server_download() {
 	default: close(new_sd);
 
   }
-  /* Respond to the download request from a peer  */
 }
 
+// Contact index server to search for the content if the content is available,
+// the index server will return the IP address and port number of the content server.
 int search_content(int s_sock, char *name) {
-  /* Contact index server to search for the content
-	 If the content is available, the index server will return
-	 the IP address and port number of the content server.        */
-  sendPDU(s_sock, SEARCH, name, FILENAME_BUFF_SIZE, NULL);
+  char searchData[DEFAULT_DATA_SIZE];
+  memset(searchData, '\0', sizeof(searchData));
+  strcpy(searchData, usr);
+  char *sD = searchData + NAMESIZE;
+  strcat(sD, name);
+  sendPDU(s_sock, SEARCH, searchData, DEFAULT_DATA_SIZE, NULL);
   char searchResponseBuf[DEFAULT_DATA_SIZE + 1];
   memset(searchResponseBuf, '\0', sizeof(searchResponseBuf));
   read(s_sock, &searchResponseBuf, sizeof(searchResponseBuf));
   struct PDU searchResponse = receivePDU(searchResponseBuf, DEFAULT_DATA_SIZE);
-
+  switch (searchResponse.type) {
+	case ERROR: {
+	  printf("Error searching content: %s\n", searchResponse.data);
+	  break;
+	}
+	  // Send response to client download function
+	case SEARCH: {
+	  client_download(name, &searchResponse);
+	  break;
+	}
+	default: printf("Error, unexpected response type from index server while searching.\n");
+  }
+  return 0;
 }
 
+// Download content via TCP from content server and register it from this peer
 int client_download(char *name, struct PDU *pdu) {
-  /* Make TCP connection with the content server to initiate the
-	 Download.    */
+  char address[INET_ADDRSTRLEN];
+  memset(address, '\0', sizeof(address));
+  int i = 0;
+  char *dp = pdu->data;
+  while (pdu->data[i] != ':') {
+	address[i] = pdu->data[i];
+	dp += 1;
+	i += 1;
+  }
+  dp += 1;
+  struct sockaddr_in server;
+  // Extract TCP server address from PDU data
+  bzero((char *)&server, sizeof(struct sockaddr_in));
+  server.sin_family = AF_INET;
+  server.sin_port = htons((unsigned short)strtoul(dp, NULL, 0));
+  inet_pton(AF_INET, address, &(server.sin_addr));
 
+  // Create TCP socket
+  int sock;
+  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+	printf("Could not create a socket for client download.\n");
+	return -1;
+  }
+  if (connect(sock, (struct sockaddr *)&server, sizeof(server)) == -1) {
+	printf("Could not connect to server for client download.\n");
+	return -1;
+  }
+  printf("Connected\n");
+  close(sock);
+  return 0;
 }
 
 void deregistration(int s_sock, char *name) {
@@ -315,6 +370,7 @@ void deregistration(int s_sock, char *name) {
                         <96> one socket per content;
            Register the content to the index server;
            Update nfds; */
+// Makes TCP socket for piece of content, registers content on index after m
 void registration(int s_sock, char *name) {
   // Open and read file if it exists
   char filepath[FILENAME_BUFF_SIZE];
@@ -352,35 +408,35 @@ void registration(int s_sock, char *name) {
 	  rp += 10;
 
 
-	  // Listen on select
-	  FD_SET(content_sd, &rfds);
-	  for (int i = 0; i < MAXCON; i++) {
-		if (table[i].val != -1) {
-		  table[i].val = content_sd;
-		  strcpy(table[i].name, filepath);
-		  break;
-		}
-	  }
-	  nfds++;
-	  listen(content_sd, MAXCON);
-
 	  // Get port number and server address
 	  struct sockaddr_in sin;
 	  socklen_t len = sizeof(sin);
 	  if (getsockname(content_sd, (struct sockaddr *)&sin, &len) == -1)
 		printf("Could not get socket name");
 	  else {
+
+		// Listen on select
+		FD_SET(content_sd, &afds);
+		for (int i = 0; i < MAXCON; i++) {
+		  if (table[i].val == -1) {
+			table[i].val = content_sd;
+			strcpy(table[i].name, filepath);
+			break;
+		  }
+		}
+		nfds = content_sd;
+
 		// Send registration PDU to index server
 		strcpy(rp, inet_ntoa(sin.sin_addr));
 		rp += strlen(inet_ntoa(sin.sin_addr));
 		char *port_string = malloc(128);
 		snprintf(port_string, 128, ":%u", sin.sin_port);
+		printf("%s\t%s\n", inet_ntoa(sin.sin_addr), port_string);
 		strcpy(rp, port_string);
-		free(port_string);
 
 		// Convert PDU to string to be sent
 		sendPDU(s_sock, REGISTER, registerData, DEFAULT_DATA_SIZE, NULL);
-
+		free(port_string);
 		// Receive error or acknowledgement from index server
 		char registerResponseBuf[DEFAULT_DATA_SIZE + 1];
 		memset(registerResponseBuf, '\0', sizeof(registerResponseBuf));
@@ -413,6 +469,7 @@ void registration(int s_sock, char *name) {
 }
 
 void handler() {
+  printf("quitting\n");
   close(s_sock);
 }
 
